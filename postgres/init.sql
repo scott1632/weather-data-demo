@@ -46,3 +46,11 @@ CREATE TABLE metadata.pipeline_runs (
     rows_loaded INTEGER
 );
 
+CREATE TABLE metadata.test_results (
+    test_result_id BIGSERIAL PRIMARY KEY,
+    test_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    execution_time NUMERIC(10,4),
+    run_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
