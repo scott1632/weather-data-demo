@@ -1,4 +1,4 @@
-.PHONY: up down reset ingest build test docs app
+.PHONY: up down reset ingest build test docs
 
 setup:
 	docker network inspect data-platform >/dev/null 2>&1 || docker network create data-platform
@@ -15,8 +15,17 @@ reset:
 	docker compose up -d postgres
 	sleep 5
 	docker compose run --rm ingestion
+	docker compose run --rm dbt dbt build
 
 ingest:
 	docker compose run --rm ingestion
 
+build:
+	docker compose run --rm dbt dbt build
+
+test:
+	docker compose run --rm dbt dbt test
+
+docs:
+	docker compose up -d dbt-docs
 

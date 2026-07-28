@@ -30,6 +30,19 @@ services:
     networks:
       - weather_network
 
+
+  dbt:
+    build:
+      context: ./dbt
+    container_name: weather_dbt
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - weather_network
+
 volumes:
   postgres_data:
 
