@@ -16,10 +16,11 @@ reset:
 	sleep 5
 	docker compose run --rm ingestion
 	docker compose run --rm dbt dbt build
+	docker compose up -d cloudbeaver
 
 ingest:
 	docker compose run --rm ingestion
-
+analytics_staging
 build:
 	docker compose run --rm dbt dbt build
 
