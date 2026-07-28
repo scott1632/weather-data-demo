@@ -20,7 +20,7 @@ reset:
 
 ingest:
 	docker compose run --rm ingestion
-analytics_staging
+
 build:
 	docker compose run --rm dbt dbt build
 
