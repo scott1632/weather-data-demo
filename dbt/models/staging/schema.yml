@@ -4,7 +4,14 @@ models:
   - name: stg_weather
     description: >
       Cleaned weather observations enriched with API request metadata.
+      This is an intermediate staging model; use fact_weather_observation
+      in analytics schema for analysis.
     columns:
+      - name: weather_id
+        description: Unique identifier for each weather observation.
+        data_tests:
+          - unique
+          - not_null
       - name: request_id
         description: Foreign key to the originating API request.
         data_tests:
@@ -21,6 +28,8 @@ models:
         description: Longitude of the observation.
         data_tests:
           - not_null
-      - name: temperature_c
+      - name: temperature
         description: Air temperature in degrees Celsius.
+        data_tests:
+          - not_null
 
