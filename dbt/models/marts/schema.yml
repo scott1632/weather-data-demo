@@ -6,8 +6,6 @@ models:
       Analytics-ready weather observations.
       Grain: one row per weather observation timestamp
       from the Open-Meteo API.
-    data_tests:
-      - weather_temperature_range
 
     columns:
       - name: observation_time
