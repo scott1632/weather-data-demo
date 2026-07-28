@@ -182,11 +182,13 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
    ORDER BY run_id;"
 ```
 
-View analytics staging data:
+View analytics data (fact table with clean column names and units):
 
 ```bash
 docker compose exec postgres psql -U weather_user -d weather_db -c \
-  "SELECT * FROM analytics_staging.weather LIMIT 10;"
+  "SELECT observation_time, temperature_c, wind_speed_kmh, precipitation_mm
+   FROM analytics.fact_weather_observation
+   ORDER BY observation_time DESC LIMIT 10;"
 ```
 
 ## Project structure
@@ -209,8 +211,11 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 │   ├── Dockerfile               # dbt image
 │   ├── dbt_project.yml          # dbt project config
 │   ├── profiles.yml             # dbt PostgreSQL connection
+│   ├── macros/                  # dbt macros (schema name generation)
+│   ├── tests/                   # Custom data quality tests
 │   └── models/
-│       ├── staging/             # Staging models and tests
+│       ├── staging/             # Cleaned, deduplicated observations
+│       ├── marts/               # Analytics-ready fact tables
 │       └── sources/             # Source table definitions
 │
 └── cloudbeaver/                 # CloudBeaver config persistence
@@ -222,8 +227,9 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 
 - **raw** — Full API responses (`weather_requests`) and hourly observations
   (`weather`)
-- **metadata** — Pipeline run audit trail
-- **analytics_staging** — dbt-transformed, production-ready weather data
+- **metadata** — Pipeline run audit trail (`pipeline_runs`)
+- **staging** — dbt staging models: cleaned and deduplicated observations
+- **analytics** — dbt mart models: `fact_weather_observation` for analysis
 
 ## Portfolio highlights
 
@@ -233,8 +239,9 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 - API retry logic and error handling
 
 **Data transformation:**
-- dbt models with staging and source definitions
-- Data quality tests for uniqueness and nullability
+- dbt models: staging layer for cleaning + mart layer for analytics
+- Data quality tests: 17 tests including not_null, unique, and custom range validations
+- Temperature range test catches unrealistic values (< -80°C or > 70°C)
 - Version-controlled transformation logic and documentation
 
 **Local development:**
