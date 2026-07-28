@@ -1,0 +1,17 @@
+# Environment
+.env
+
+# CloudBeaver runtime state
+cloudbeaver/workspace/
+
+# Python
+__pycache__/
+*.pyc
+
+# dbt generated files
+dbt/target/
+dbt/logs/
+
+# OS
+.DS_Store
+
