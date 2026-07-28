@@ -8,8 +8,24 @@ models:
       from the Open-Meteo API.
 
     columns:
+      - name: weather_id
+        description: Unique identifier for each weather observation.
+        data_tests:
+          - unique
+          - not_null
+
       - name: observation_time
         description: Timestamp of the observation.
+        data_tests:
+          - not_null
+
+      - name: latitude
+        description: Latitude of the observation.
+        data_tests:
+          - not_null
+
+      - name: longitude
+        description: Longitude of the observation.
         data_tests:
           - not_null
 
@@ -17,10 +33,20 @@ models:
         description: Air temperature in degrees Celsius.
         data_tests:
           - not_null
+          - temperature_range
 
-      - name: requested_at
+      - name: apparent_temperature_c
+        description: Apparent (feels like) temperature in degrees Celsius.
+
+      - name: precipitation_mm
+        description: Precipitation amount in millimeters.
+
+      - name: wind_speed_kmh
+        description: Wind speed in kilometers per hour.
+
+      - name: weather_code
+        description: WMO weather condition code.
+
+      - name: source_request_time
         description: Timestamp when the source API request was made.
-
-      - name: ingested_at
-        description: Timestamp when the record was loaded into PostgreSQL.
 

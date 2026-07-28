@@ -32,4 +32,16 @@ models:
         description: Air temperature in degrees Celsius.
         data_tests:
           - not_null
+      - name: apparent_temperature
+        description: Apparent (feels like) temperature in degrees Celsius.
+      - name: precipitation
+        description: Precipitation amount in millimeters.
+      - name: wind_speed
+        description: Wind speed in kilometers per hour.
+      - name: weather_code
+        description: WMO weather condition code.
+      - name: ingested_at
+        description: Timestamp when the record was loaded into PostgreSQL.
+      - name: request_time
+        description: Timestamp when the source API request was made.
 

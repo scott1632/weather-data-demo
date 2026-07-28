@@ -216,13 +216,13 @@ def get_pipeline_metrics():
             last_ingestion = cur.fetchone()[0]
     return (observations, latest_observation, last_ingestion)
 
-def run_query(query):
+def run_query(query: str) -> tuple | None:
     with psycopg.connect(**DB_CONFIG) as conn:
         with conn.cursor() as cur:
             cur.execute(query)
             return cur.fetchone()
 
-def run_command(command, cwd=None):
+def run_command(command: list[str], cwd: str | None = None) -> tuple[int, str, str]:
     env = os.environ.copy()
     result = subprocess.run(
         command,
@@ -247,8 +247,7 @@ def log_pipeline_run(pipeline_name, status):
             )
         conn.commit()
 
-def log_test_results(test_results_list):
-    """Write test results to database"""
+def log_test_results(test_results_list: list[tuple[str, str]]) -> None:
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -263,7 +262,7 @@ def log_test_results(test_results_list):
                     )
             conn.commit()
     except Exception as e:
-        pass
+        st.warning(f"Failed to log test results: {e}")
 
 @st.cache_data(ttl=60)
 def get_weather_history():
@@ -297,11 +296,88 @@ def get_latest_pipeline_runs():
             cur.execute(sql)
             return cur.fetchall()
 
+@st.cache_data(ttl=60)
+def get_test_status() -> tuple[str, str]:
+    """Get test status: (label, css_class for dot color)"""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM metadata.test_results")
+                count = cur.fetchone()[0]
+
+                if count == 0:
+                    return ("No tests run", "error")
+
+                cur.execute(
+                    "SELECT COUNT(*) FROM metadata.test_results "
+                    "WHERE status = 'pass' AND run_timestamp = "
+                    "(SELECT MAX(run_timestamp) FROM metadata.test_results)"
+                )
+                passed = cur.fetchone()[0]
+
+                cur.execute(
+                    "SELECT COUNT(*) FROM metadata.test_results "
+                    "WHERE status = 'fail' AND run_timestamp = "
+                    "(SELECT MAX(run_timestamp) FROM metadata.test_results)"
+                )
+                failed = cur.fetchone()[0]
+
+                if failed > 0:
+                    return (f"{passed} passed, {failed} failed", "error")
+                else:
+                    return (f"{passed} passed", "success")
+    except Exception:
+        return ("No tests run", "error")
+
+@st.cache_data(ttl=60)
+def get_last_run_status() -> tuple[str, str]:
+    """Get last pipeline run status: (label, dot_color)"""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM metadata.pipeline_runs")
+                count = cur.fetchone()[0]
+
+                if count == 0:
+                    return ("Not run yet", "#f87171")
+
+                cur.execute(
+                    "SELECT completed_at FROM metadata.pipeline_runs "
+                    "ORDER BY completed_at DESC LIMIT 1"
+                )
+                result = cur.fetchone()
+                if result and result[0]:
+                    last_time = result[0]
+                    now = datetime.now(timezone.utc)
+                    diff = now - last_time
+
+                    if diff.total_seconds() < 60:
+                        label = "Just now"
+                    elif diff.total_seconds() < 3600:
+                        minutes = int(diff.total_seconds() / 60)
+                        label = f"{minutes}m ago"
+                    elif diff.total_seconds() < 86400:
+                        hours = int(diff.total_seconds() / 3600)
+                        label = f"{hours}h ago"
+                    else:
+                        label = "Recent"
+
+                    return (label, "#34d399")
+                else:
+                    return ("Not run yet", "#f87171")
+    except Exception:
+        return ("Not run yet", "#f87171")
+
 # Title
 st.markdown("# 🌦️ Weather Pipeline")
 
+# Get dynamic status
+test_status, test_status_class = get_test_status()
+test_dot_color = "#34d399" if test_status_class == "success" else "#f87171"
+last_run_label, last_run_color = get_last_run_status()
+
 # Header with status and tools
-st.markdown("""
+st.markdown(f"""
     <div class="custom-header" style="margin-top: 0 !important; margin-bottom: 20px !important;">
         <div class="status-indicators" style="flex: 1;">
             <div class="status-item">
@@ -312,17 +388,17 @@ st.markdown("""
                 </div>
             </div>
             <div class="status-item">
-                <div class="status-dot"></div>
+                <div class="status-dot" style="background-color: {last_run_color};"></div>
                 <div>
                     <div class="status-label">Last Run</div>
-                    <div class="status-value">Recent</div>
+                    <div class="status-value">{last_run_label}</div>
                 </div>
             </div>
             <div class="status-item">
-                <div class="status-dot"></div>
+                <div class="status-dot" style="background-color: {test_dot_color};"></div>
                 <div>
                     <div class="status-label">Tests</div>
-                    <div class="status-value">Passing</div>
+                    <div class="status-value">{test_status}</div>
                 </div>
             </div>
         </div>
@@ -456,9 +532,33 @@ with right_col:
     build_text = f"▶ Build\n{build_status[1].strftime('%H:%M') if build_status[1] else '—'}" if build_status[1] else "▶ Build"
     if st.button(build_text, use_container_width=True, key="btn_build"):
         with st.spinner("Running dbt build..."):
-            code, stdout, stderr = run_command(["dbt", "build"], cwd="/app/dbt")
+            code, stdout, stderr = run_command(
+                ["dbt", "build", "--project-dir=/app/dbt", "--profiles-dir=/app/dbt"]
+            )
             if code == 0:
                 log_pipeline_run("dbt_build", "SUCCESS")
+
+                # Parse and log test results from dbt build
+                import json
+                from pathlib import Path
+                try:
+                    results_file = Path("/app/dbt/target/run_results.json")
+                    if results_file.exists():
+                        with open(results_file) as f:
+                            data = json.load(f)
+
+                        test_results = []
+                        for result in data.get("results", []):
+                            unique_id = result.get("unique_id", "")
+                            if unique_id.startswith("test."):
+                                test_name = unique_id.split(".")[2] if len(unique_id.split(".")) > 2 else unique_id
+                                test_results.append((test_name, result.get("status", "unknown")))
+
+                        if test_results:
+                            log_test_results(test_results)
+                except Exception as e:
+                    pass
+
                 st.success("✓ Build completed")
                 st.cache_data.clear()
                 st.rerun()
@@ -475,7 +575,9 @@ with right_col:
     test_text = f"▶ Test\n{test_status[1].strftime('%H:%M') if test_status[1] else '—'}" if test_status[1] else "▶ Test"
     if st.button(test_text, use_container_width=True, key="btn_test"):
         with st.spinner("Running dbt tests..."):
-            code, stdout, stderr = run_command(["dbt", "test"], cwd="/app/dbt")
+            code, stdout, stderr = run_command(
+                ["dbt", "test", "--project-dir=/app/dbt", "--profiles-dir=/app/dbt"]
+            )
             if code == 0:
                 log_pipeline_run("dbt_test", "SUCCESS")
 
