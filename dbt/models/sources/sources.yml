@@ -1,0 +1,34 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw weather data ingested from Open-Meteo API.
+    database: weather_db
+    schema: raw
+    tables:
+      - name: weather_requests
+        description: >
+          One row per API request. Stores the original JSON payload
+          returned by Open-Meteo for traceability.
+        columns:
+          - name: request_id
+            description: Unique identifier for each API request.
+            data_tests:
+              - unique
+              - not_null
+          - name: raw_payload
+            description: Original Open-Meteo API response stored as JSONB.
+
+      - name: weather
+        description: >
+          Hourly weather observations extracted from Open-Meteo responses.
+        columns:
+          - name: request_id
+            description: Foreign key to the originating API request.
+            data_tests:
+              - not_null
+          - name: observation_time
+            description: Timestamp of the weather observation.
+            data_tests:
+              - not_null
+
