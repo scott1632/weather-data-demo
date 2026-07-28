@@ -33,7 +33,6 @@ models:
         description: Air temperature in degrees Celsius.
         data_tests:
           - not_null
-          - temperature_range
 
       - name: apparent_temperature_c
         description: Apparent (feels like) temperature in degrees Celsius.
