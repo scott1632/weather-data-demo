@@ -129,6 +129,19 @@ make docs
 
 Then open http://localhost:8082 to explore your models, tests, and lineage.
 
+**Access the Streamlit dashboard:**
+
+```bash
+make app
+```
+
+Or simply run `docker compose up -d streamlit`. Then open http://localhost:8501 to view the dashboard.
+
+The dashboard displays:
+- **Header:** Database connection status, last pipeline run time, test results summary
+- **Main content:** Weather analytics charts, data quality test results grouped by test type
+- **Sidebar:** Quick action buttons (Ingest, Build, Test), key metrics, recent pipeline history, and links to tools
+
 **Stop services (keep database):**
 
 ```bash
@@ -142,6 +155,41 @@ make reset
 ```
 
 This permanently deletes all local PostgreSQL data and runs a fresh setup.
+
+**Fresh start (skip ingestion pipeline, use dashboard to run manually):**
+
+```bash
+make fresh
+```
+
+Stops all services, removes the database volume, and starts only PostgreSQL, Streamlit, CloudBeaver, and dbt-docs. Use the Streamlit dashboard to manually run ingestion, dbt build, and tests. Useful for testing the UI without waiting for full pipeline runs.
+
+**Full cleanup:**
+
+```bash
+make clean
+```
+
+Stops all services and removes the database volume. For deep cleanup (removing Docker images and networks), uncomment the destructive lines in the Makefile. See "Advanced cleanup" below.
+
+### Advanced cleanup (destructive)
+
+If you need to rebuild Docker images from scratch or reset the Docker network, uncomment these lines in the Makefile targets (`setup`, `reset`, `fresh`, `clean`):
+
+```bash
+# docker image rm -f weather-data-demo-ingestion weather-data-demo-dbt weather-data-demo-streamlit
+# docker network rm data-platform 2>/dev/null || true
+# docker network create data-platform
+```
+
+These commands:
+- **Remove images:** Forces a fresh build of all project containers (useful if you update dependencies or Dockerfiles)
+- **Remove network:** Resets Docker networking (useful if you have connectivity issues or want to start completely fresh)
+
+⚠️ These are commented out by default because they're irreversible. Only use them if:
+1. You've made changes to `Dockerfile` or `requirements.txt` and need a clean rebuild
+2. You're troubleshooting Docker network issues
+3. You want to completely remove all traces of the project from Docker
 
 ## Query your data
 
