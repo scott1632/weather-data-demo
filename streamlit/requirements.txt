@@ -1,0 +1,9 @@
+streamlit
+psycopg[binary]
+python-dotenv
+requests
+plotly
+
+dbt-core==1.8.7
+dbt-postgres==1.8.2
+

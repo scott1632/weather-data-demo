@@ -1,4 +1,4 @@
-.PHONY: up down reset ingest build test docs
+.PHONY: up down reset ingest build test docs app
 
 setup:
 	docker network inspect data-platform >/dev/null 2>&1 || docker network create data-platform
@@ -16,7 +16,7 @@ reset:
 	sleep 5
 	docker compose run --rm ingestion
 	docker compose run --rm dbt dbt build
-	docker compose up -d cloudbeaver
+	docker compose up -d streamlit dbt-docs cloudbeaver
 
 ingest:
 	docker compose run --rm ingestion
@@ -29,4 +29,7 @@ test:
 
 docs:
 	docker compose up -d dbt-docs
+
+app:
+	docker compose up -d streamlit
 

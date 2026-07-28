@@ -1,4 +1,5 @@
 services:
+
   postgres:
     image: postgres:16
     container_name: weather_postgres
@@ -58,6 +59,25 @@ services:
     networks:
       - weather_network
 
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: ./streamlit/Dockerfile
+    container_name: weather_streamlit
+    env_file:
+      - .env
+    ports:
+      - "${STREAMLIT_PORT}:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./ingestion:/app/ingestion
+      - ./dbt:/app/dbt
+    networks:
+      - weather_network
+
   dbt-docs:
     build:
       context: ./dbt
@@ -89,4 +109,3 @@ networks:
   weather_network:
     external: true
     name: ${DOCKER_NETWORK:-data-platform}
-
