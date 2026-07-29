@@ -1,5 +1,6 @@
 CREATE SCHEMA IF NOT EXISTS raw;
 CREATE SCHEMA IF NOT EXISTS metadata;
+CREATE SCHEMA IF NOT EXISTS analytics;
 
 CREATE TABLE raw.weather_requests (
     request_id BIGSERIAL PRIMARY KEY,

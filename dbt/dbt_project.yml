@@ -1,0 +1,21 @@
+name: weather_demo
+version: "1.0"
+config-version: 2
+
+profile: weather_demo
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+
+  weather_demo:
+    staging:
+      +schema: staging
+      +materialized: view
+
+    marts:
+      +schema: analytics
+      +materialized: table
+

@@ -1,6 +1,8 @@
 import json
+import logging
 import os
 from datetime import datetime, timezone
+from typing import Any
 
 import psycopg
 import requests
@@ -8,8 +10,25 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
-def create_session():
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+HOURLY_FIELDS = (
+    "temperature_2m",
+    "apparent_temperature",
+    "precipitation",
+    "wind_speed_10m",
+    "weather_code",
+)
+REQUIRED_FIELDS = ("time",) + HOURLY_FIELDS
+PIPELINE_NAME = "weather_ingestion"
+
+
+def create_session() -> requests.Session:
     retry = Retry(
         total=3,
         backoff_factor=2,
@@ -22,10 +41,8 @@ def create_session():
 
     return session
 
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
-
-def get_config():
+def get_config() -> dict[str, Any]:
     return {
         "latitude": float(os.environ["OPEN_METEO_LATITUDE"]),
         "longitude": float(os.environ["OPEN_METEO_LONGITUDE"]),
@@ -33,7 +50,7 @@ def get_config():
     }
 
 
-def get_database_connection():
+def get_database_connection() -> psycopg.Connection:
     return psycopg.connect(
         host=os.environ["POSTGRES_HOST"],
         port=os.environ["POSTGRES_PORT"],
@@ -43,23 +60,20 @@ def get_database_connection():
     )
 
 
-def fetch_weather(config):
+def fetch_weather(config: dict[str, Any]) -> dict[str, Any]:
     params = {
         "latitude": config["latitude"],
         "longitude": config["longitude"],
-        "hourly": ",".join(
-            [
-                "temperature_2m",
-                "apparent_temperature",
-                "precipitation",
-                "wind_speed_10m",
-                "weather_code",
-            ]
-        ),
+        "hourly": ",".join(HOURLY_FIELDS),
         "timezone": config["timezone"],
     }
 
     session = create_session()
+
+    logger.info(
+        "Fetching forecast from Open-Meteo for "
+        f"lat={config['latitude']}, lon={config['longitude']}"
+    )
 
     response = session.get(
         OPEN_METEO_URL,
@@ -76,39 +90,34 @@ def fetch_weather(config):
             "Open-Meteo response did not contain hourly data"
         )
 
+    logger.info(f"Successfully fetched forecast data")
     return payload
 
 
 
-def transform_weather_response(payload, request_id, config):
+def transform_weather_response(
+    payload: dict[str, Any],
+    request_id: int,
+    config: dict[str, Any],
+) -> list[tuple]:
     hourly = payload["hourly"]
-    required_fields = (
-        "time",
-        "temperature_2m",
-        "apparent_temperature",
-        "precipitation",
-        "wind_speed_10m",
-        "weather_code",
-    )
-    missing_fields = [field for field in required_fields if field not in hourly]
+    missing_fields = [field for field in REQUIRED_FIELDS if field not in hourly]
 
     if missing_fields:
         raise ValueError(
-            "Open-Meteo hourly data is missing fields: "
-            + ", ".join(missing_fields)
+            f"Open-Meteo hourly data is missing fields: {', '.join(missing_fields)}"
         )
 
     row_count = len(hourly["time"])
     invalid_lengths = [
         field
-        for field in required_fields
+        for field in REQUIRED_FIELDS
         if len(hourly[field]) != row_count
     ]
 
     if invalid_lengths:
         raise ValueError(
-            "Open-Meteo hourly fields have inconsistent lengths: "
-            + ", ".join(invalid_lengths)
+            f"Open-Meteo hourly fields have inconsistent lengths: {', '.join(invalid_lengths)}"
         )
 
     records = []
@@ -129,11 +138,15 @@ def transform_weather_response(payload, request_id, config):
             )
         )
 
+    logger.info(f"Transformed {len(records)} weather observations")
     return records
 
 
-def insert_weather_request(connection, payload, config):
-
+def insert_weather_request(
+    connection: psycopg.Connection,
+    payload: dict[str, Any],
+    config: dict[str, Any],
+) -> int:
     sql = """
         INSERT INTO raw.weather_requests (
             latitude,
@@ -164,11 +177,14 @@ def insert_weather_request(connection, payload, config):
 
         request_id = cursor.fetchone()[0]
 
+    logger.info(f"Inserted API request with request_id={request_id}")
     return request_id
 
 
-def upsert_weather(connection, records):
-
+def upsert_weather(
+    connection: psycopg.Connection,
+    records: list[tuple],
+) -> None:
     sql = """
     INSERT INTO raw.weather
     (
@@ -212,9 +228,15 @@ def upsert_weather(connection, records):
             records,
         )
 
+    logger.info(f"Upserted {len(records)} weather observations")
 
-def log_pipeline_run(connection, started_at, completed_at, rows_loaded):
 
+def log_pipeline_run(
+    connection: psycopg.Connection,
+    started_at: datetime,
+    completed_at: datetime,
+    rows_loaded: int,
+) -> None:
     sql = """
     INSERT INTO metadata.pipeline_runs
     (
@@ -227,7 +249,7 @@ def log_pipeline_run(connection, started_at, completed_at, rows_loaded):
 
     VALUES
     (
-        'weather_ingestion',
+        %s,
         'SUCCESS',
         %s,
         %s,
@@ -238,46 +260,50 @@ def log_pipeline_run(connection, started_at, completed_at, rows_loaded):
     with connection.cursor() as cursor:
         cursor.execute(
             sql,
-            (started_at, completed_at, rows_loaded),
+            (PIPELINE_NAME, started_at, completed_at, rows_loaded),
         )
 
+    logger.info(f"Logged pipeline run: {rows_loaded} rows loaded")
 
-def main():
 
+def main() -> None:
     started = datetime.now(timezone.utc)
 
-    print("Starting weather ingestion")
+    logger.info("Starting weather ingestion")
 
-    config = get_config()
+    try:
+        config = get_config()
 
-    payload = fetch_weather(config)
+        payload = fetch_weather(config)
 
-    with get_database_connection() as connection:
-        request_id = insert_weather_request(
-            connection,
-            payload,
-            config,
-        )
+        with get_database_connection() as connection:
+            request_id = insert_weather_request(
+                connection,
+                payload,
+                config,
+            )
 
-        records = transform_weather_response(
-            payload,
-            request_id,
-            config,
-        )
+            records = transform_weather_response(
+                payload,
+                request_id,
+                config,
+            )
 
-        upsert_weather(connection, records)
+            upsert_weather(connection, records)
 
-        completed = datetime.now(timezone.utc)
+            completed = datetime.now(timezone.utc)
 
-        log_pipeline_run(connection, started, completed, len(records))
+            log_pipeline_run(connection, started, completed, len(records))
 
-    print(
-        f"Loaded {len(records)} weather records"
-    )
+            connection.commit()
+            logger.info("Transaction committed successfully")
 
-    print(
-        f"Completed at {completed}"
-    )
+        logger.info(f"Loaded {len(records)} weather records")
+        logger.info(f"Completed at {completed}")
+
+    except Exception as e:
+        logger.error(f"Ingestion failed: {e}", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":

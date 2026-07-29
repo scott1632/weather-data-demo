@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: fact_weather_observation
+    description: >
+      Analytics-ready weather observations.
+      Grain: one row per weather observation timestamp
+      from the Open-Meteo API.
+
+    columns:
+      - name: observation_time
+        description: Timestamp of the observation.
+        data_tests:
+          - not_null
+
+      - name: temperature_c
+        description: Air temperature in degrees Celsius.
+        data_tests:
+          - not_null
+
+      - name: requested_at
+        description: Timestamp when the source API request was made.
+
+      - name: ingested_at
+        description: Timestamp when the record was loaded into PostgreSQL.
+
