@@ -439,7 +439,23 @@ with left_col:
         temp_fig.add_trace(go.Scatter(x=observed["observation_time"], y=observed["temperature_c"], name="Observed", mode="lines", line=dict(color="#34d399")))
         temp_fig.add_trace(go.Scatter(x=forecast["observation_time"], y=forecast["temperature_c"], name="Forecast", mode="lines", line=dict(dash="dot", color="#4da6ff")))
         temp_fig.update_layout(height=350, hovermode="x unified", template="plotly_dark", margin=dict(l=0, r=0, t=0, b=0), showlegend=True)
-        st.plotly_chart(temp_fig, use_container_width=True)
+
+        # Location map, alongside the temperature chart
+        latest = weather.iloc[-1]
+        location = pd.DataFrame({
+            "latitude": [float(os.environ["OPEN_METEO_LATITUDE"])],
+            "longitude": [float(os.environ["OPEN_METEO_LONGITUDE"])],
+            "temperature": [latest["temperature_c"]],
+        })
+        map_fig = px.scatter_map(location, lat="latitude", lon="longitude", hover_data=["temperature"])
+        map_fig.update_layout(height=350, map_zoom=11, map_style="carto-darkmatter", margin=dict(l=0, r=0, t=0, b=0))
+        map_fig.update_traces(marker=dict(size=18, color="#f87171"))
+
+        temp_col, map_col = st.columns([2, 1])
+        with temp_col:
+            st.plotly_chart(temp_fig, use_container_width=True)
+        with map_col:
+            st.plotly_chart(map_fig, use_container_width=True)
 
         # Wind & Precipitation
         col1, col2 = st.columns(2)
