@@ -276,7 +276,8 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 │   ├── macros/                  # dbt macros (schema name generation)
 │   ├── tests/                   # Custom data quality tests
 │   └── models/
-│       ├── staging/             # Cleaned, deduplicated observations
+│       ├── staging/             # Cleaned, renamed observations (dedup happens
+│       │                        #   upstream via Postgres ON CONFLICT in ingest.py)
 │       ├── marts/               # Analytics-ready fact tables
 │       └── sources/             # Source table definitions
 │
@@ -290,7 +291,9 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 - **raw** — Full API responses (`weather_requests`) and hourly observations
   (`weather`)
 - **metadata** — Pipeline run audit trail (`pipeline_runs`)
-- **staging** — dbt staging models: cleaned and deduplicated observations
+- **staging** — dbt staging models: cleaned and renamed observations
+  (deduplication itself happens upstream, via Postgres's `ON CONFLICT` in
+  `ingestion/ingest.py` — staging models don't dedupe)
 - **analytics** — dbt mart models: `fact_weather_observation` for analysis
 
 ## Portfolio highlights
@@ -302,7 +305,10 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 
 **Data transformation:**
 - dbt models: staging layer for cleaning + mart layer for analytics
-- Data quality tests: 17 tests including not_null, unique, and custom range validations
+- Data quality tests: `not_null`/`unique` schema tests on every key column
+  across sources, staging, and marts, plus a custom range-validation test —
+  run `dbt test` (or check CI) for the current count rather than trusting a
+  number here, since it'll drift as models are added
 - Temperature range test catches unrealistic values (< -80°C or > 70°C)
 - Version-controlled transformation logic and documentation
 
