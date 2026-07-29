@@ -234,6 +234,16 @@ def run_command(command: list[str], cwd: str | None = None) -> tuple[int, str, s
     )
     return (result.returncode, result.stdout, result.stderr)
 
+def show_command_output(stdout: str, stderr: str) -> None:
+    """Surface a command's full stdout/stderr, so successful runs are
+    inspectable too rather than only showing stderr on failure."""
+    if stdout or stderr:
+        with st.expander("Output"):
+            if stdout:
+                st.code(stdout, language="text")
+            if stderr:
+                st.code(stderr, language="text")
+
 def log_pipeline_run(pipeline_name, status):
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -445,7 +455,7 @@ with left_col:
             rain_fig.update_layout(height=300, title="Precipitation (mm)", template="plotly_dark", margin=dict(l=0, r=0, t=30, b=0), showlegend=False)
             st.plotly_chart(rain_fig, use_container_width=True)
     except Exception as e:
-        pass
+        st.error(f"Failed to load weather analytics: {e}")
 
     # Test Results - Organized by source
     st.markdown('<p class="section-title">Test Results</p>', unsafe_allow_html=True)
@@ -505,7 +515,7 @@ with right_col:
                     conn
                 )
             return {row['pipeline_name']: (row['status'], row['completed_at']) for _, row in result.iterrows()}
-        except:
+        except psycopg.Error:
             return {}
 
     action_status = get_action_status()
@@ -517,11 +527,16 @@ with right_col:
         with st.spinner("Running ingestion..."):
             code, stdout, stderr = run_command(["python", "/app/ingestion/ingest.py"])
             if code == 0:
+                st.session_state["ingest_output"] = (stdout, stderr)
                 st.success("✓ Ingestion completed")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 st.error(stderr)
+                show_command_output(stdout, stderr)
+
+    if "ingest_output" in st.session_state:
+        show_command_output(*st.session_state["ingest_output"])
 
     if ingest_status[1]:
         status_color = "🟢" if ingest_status[0] == "SUCCESS" else "🔴"
@@ -556,15 +571,20 @@ with right_col:
 
                         if test_results:
                             log_test_results(test_results)
-                except Exception as e:
-                    pass
+                except (OSError, ValueError) as e:
+                    st.warning(f"Could not parse test results: {e}")
 
+                st.session_state["build_output"] = (stdout, stderr)
                 st.success("✓ Build completed")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 log_pipeline_run("dbt_build", "FAILED")
                 st.error(stderr)
+                show_command_output(stdout, stderr)
+
+    if "build_output" in st.session_state:
+        show_command_output(*st.session_state["build_output"])
 
     if build_status[1]:
         status_color = "🟢" if build_status[0] == "SUCCESS" else "🔴"
@@ -599,15 +619,20 @@ with right_col:
 
                         if test_results:
                             log_test_results(test_results)
-                except Exception as e:
-                    pass
+                except (OSError, ValueError) as e:
+                    st.warning(f"Could not parse test results: {e}")
 
+                st.session_state["test_output"] = (stdout, stderr)
                 st.success("✓ Tests passed")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 log_pipeline_run("dbt_test", "FAILED")
                 st.error(stderr)
+                show_command_output(stdout, stderr)
+
+    if "test_output" in st.session_state:
+        show_command_output(*st.session_state["test_output"])
 
     if test_status[1]:
         status_color = "🟢" if test_status[0] == "SUCCESS" else "🔴"
@@ -622,7 +647,7 @@ with right_col:
         st.metric("Observations", observations)
         st.metric("Latest", str(latest).split()[0] if latest else "—")
         st.metric("Last Ingest", str(ingestion).split()[1][:5] if ingestion else "—")
-    except:
+    except psycopg.Error:
         st.info("⚠️ Data not available yet.")
 
     st.divider()
