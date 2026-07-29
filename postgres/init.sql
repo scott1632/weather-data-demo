@@ -1,3 +1,9 @@
+-- Separate database for Airflow's own metadata (task/DAG state), so its
+-- internal tables don't live alongside this project's raw/metadata/analytics
+-- schemas. Reuses this same Postgres instance rather than standing up a
+-- second container just for Airflow's backend.
+CREATE DATABASE airflow;
+
 CREATE SCHEMA IF NOT EXISTS raw;
 CREATE SCHEMA IF NOT EXISTS metadata;
 CREATE SCHEMA IF NOT EXISTS analytics;
@@ -43,7 +49,8 @@ CREATE TABLE metadata.pipeline_runs (
     status TEXT NOT NULL,
     started_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ,
-    rows_loaded INTEGER
+    rows_loaded INTEGER,
+    error_message TEXT
 );
 
 CREATE TABLE metadata.test_results (

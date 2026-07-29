@@ -244,16 +244,16 @@ def show_command_output(stdout: str, stderr: str) -> None:
             if stderr:
                 st.code(stderr, language="text")
 
-def log_pipeline_run(pipeline_name, status):
+def log_pipeline_run(pipeline_name, status, error_message=None):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO metadata.pipeline_runs
-                (pipeline_name, status, started_at, completed_at, rows_loaded)
-                VALUES (%s, %s, NOW(), NOW(), NULL)
+                (pipeline_name, status, started_at, completed_at, rows_loaded, error_message)
+                VALUES (%s, %s, NOW(), NOW(), NULL, %s)
                 """,
-                (pipeline_name, status),
+                (pipeline_name, status, error_message),
             )
         conn.commit()
 
@@ -595,7 +595,7 @@ with right_col:
                 st.cache_data.clear()
                 st.rerun()
             else:
-                log_pipeline_run("dbt_build", "FAILED")
+                log_pipeline_run("dbt_build", "FAILED", error_message=stderr)
                 st.error(stderr)
                 show_command_output(stdout, stderr)
 
@@ -643,7 +643,7 @@ with right_col:
                 st.cache_data.clear()
                 st.rerun()
             else:
-                log_pipeline_run("dbt_test", "FAILED")
+                log_pipeline_run("dbt_test", "FAILED", error_message=stderr)
                 st.error(stderr)
                 show_command_output(stdout, stderr)
 

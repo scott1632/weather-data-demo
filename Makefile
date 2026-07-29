@@ -1,7 +1,6 @@
 .PHONY: up down reset ingest build test docs app fresh clean
 
 setup:
-	# docker network inspect data-platform >/dev/null 2>&1 || docker network create data-platform
 	docker compose up -d
 
 up:
@@ -16,7 +15,7 @@ reset:
 	sleep 5
 	docker compose run --rm ingestion
 	docker compose run --rm dbt dbt build
-	docker compose up -d streamlit dbt-docs cloudbeaver
+	docker compose up -d streamlit dbt-docs cloudbeaver airflow-webserver airflow-scheduler
 
 ingest:
 	docker compose run --rm ingestion
@@ -36,9 +35,7 @@ app:
 fresh:
 	docker compose down -v
 	# docker image rm -f weather-data-demo-ingestion weather-data-demo-dbt weather-data-demo-streamlit
-	# docker network rm data-platform 2>/dev/null || true
-	# docker network create data-platform
-	docker compose up -d postgres streamlit cloudbeaver dbt-docs
+	docker compose up -d postgres streamlit cloudbeaver dbt-docs airflow-webserver airflow-scheduler
 	@echo ""
 	@echo "✅ Fresh start complete!"
 	@echo ""
@@ -46,9 +43,11 @@ fresh:
 	@echo "  1. Run ingestion"
 	@echo "  2. Run dbt build"
 	@echo "  3. Run dbt tests"
+	@echo ""
+	@echo "Or open the Airflow UI (http://localhost:8088) and trigger the"
+	@echo "weather_pipeline DAG to run the same steps on a schedule."
 
 clean:
 	docker compose down -v
 	# docker image rm -f weather-data-demo-ingestion weather-data-demo-dbt weather-data-demo-streamlit
-	# docker network rm data-platform 2>/dev/null || true
 

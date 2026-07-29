@@ -1,3 +1,31 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: ./airflow/Dockerfile
+  env_file:
+    - .env
+  environment:
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY}
+    # dbt's log/target output must not land in the bind-mounted ./dbt
+    # directory: it's owned by the host user (or root, from the separate
+    # dbt service's own container), and the airflow user (uid 50000) can't
+    # write there, causing PermissionError on dbt.log. Redirect both to a
+    # container-local, airflow-owned directory instead.
+    DBT_LOG_PATH: /home/airflow/dbt-logs
+    DBT_TARGET_PATH: /home/airflow/dbt-target
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./ingestion:/opt/airflow/ingestion
+    - ./dbt:/opt/airflow/dbt
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - weather_network
+
 services:
 
   postgres:
@@ -102,10 +130,45 @@ services:
     networks:
       - weather_network
 
+  airflow-init:
+    <<: *airflow-common
+    container_name: weather_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - >-
+        airflow db migrate &&
+        (airflow users create
+        --username "${AIRFLOW_ADMIN_USERNAME:-admin}"
+        --password "${AIRFLOW_ADMIN_PASSWORD:-admin}"
+        --firstname Air --lastname Flow --role Admin
+        --email admin@example.com || true)
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: weather_airflow_webserver
+    command: webserver
+    ports:
+      - "${AIRFLOW_PORT}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: weather_airflow_scheduler
+    command: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
 
 networks:
   weather_network:
-    external: true
-    name: ${DOCKER_NETWORK:-data-platform}
+    driver: bridge

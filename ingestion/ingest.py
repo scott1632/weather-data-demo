@@ -228,9 +228,12 @@ def upsert_weather(
 
 def log_pipeline_run(
     connection: psycopg.Connection,
+    status: str,
     started_at: datetime,
     completed_at: datetime,
-    rows_loaded: int,
+    rows_loaded: int | None = None,
+    error_message: str | None = None,
+    pipeline_name: str = PIPELINE_NAME,
 ) -> None:
     sql = """
     INSERT INTO metadata.pipeline_runs
@@ -239,13 +242,15 @@ def log_pipeline_run(
         status,
         started_at,
         completed_at,
-        rows_loaded
+        rows_loaded,
+        error_message
     )
 
     VALUES
     (
         %s,
-        'SUCCESS',
+        %s,
+        %s,
         %s,
         %s,
         %s
@@ -255,10 +260,20 @@ def log_pipeline_run(
     with connection.cursor() as cursor:
         cursor.execute(
             sql,
-            (PIPELINE_NAME, started_at, completed_at, rows_loaded),
+            (
+                pipeline_name,
+                status,
+                started_at,
+                completed_at,
+                rows_loaded,
+                error_message,
+            ),
         )
 
-    logger.info(f"Logged pipeline run: {rows_loaded} rows loaded")
+    logger.info(
+        f"Logged pipeline run: pipeline_name={pipeline_name}, "
+        f"status={status}, rows_loaded={rows_loaded}"
+    )
 
 
 def main() -> None:
@@ -288,7 +303,9 @@ def main() -> None:
 
             completed = datetime.now(timezone.utc)
 
-            log_pipeline_run(connection, started, completed, len(records))
+            log_pipeline_run(
+                connection, "SUCCESS", started, completed, rows_loaded=len(records)
+            )
 
             connection.commit()
             logger.info("Transaction committed successfully")
@@ -298,6 +315,21 @@ def main() -> None:
 
     except Exception as e:
         logger.error(f"Ingestion failed: {e}", exc_info=True)
+        try:
+            with get_database_connection() as fail_connection:
+                log_pipeline_run(
+                    fail_connection,
+                    "FAILED",
+                    started,
+                    datetime.now(timezone.utc),
+                    error_message=str(e),
+                )
+                fail_connection.commit()
+        except Exception:
+            logger.error(
+                "Failed to record pipeline failure in metadata.pipeline_runs",
+                exc_info=True,
+            )
         raise
 
 

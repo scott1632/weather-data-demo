@@ -6,22 +6,31 @@
 
 A containerised data-engineering project that retrieves hourly forecast data
 from the [Open-Meteo API](https://open-meteo.com/), stores observations in
-PostgreSQL, and transforms them using dbt for analytics.
+PostgreSQL, transforms them using dbt for analytics, and orchestrates the
+whole thing hourly with Apache Airflow.
 
 The project demonstrates a complete analytics stack: raw data ingestion with
-audit records, idempotent delta loading, dbt transformations with tests, and
-tools for exploration and documentation. Built entirely in Docker for repeatable
-local development.
+audit records, idempotent delta loading, dbt transformations with tests,
+Airflow orchestration, and tools for exploration and documentation. Built
+entirely in Docker for repeatable local development.
 
 ## Architecture
 
 ```text
+Airflow (weather_pipeline DAG, @hourly)
+        │
+        ▼
 Open-Meteo API → Python ingestion → PostgreSQL (raw schema)
                                   ↓
                             dbt models (analytics schema)
                                   ↓
-                     CloudBeaver UI + dbt-docs
+                     CloudBeaver UI + dbt-docs + Streamlit
 ```
+
+Airflow orchestrates the same ingestion/dbt code the Streamlit dashboard's
+"Quick Actions" buttons and `make ingest`/`make build`/`make test` already
+run — there's one `ingestion/` and one `dbt/` directory, bind-mounted into
+whichever service runs them, not a separate copy per consumer.
 
 ### Data flow
 
@@ -35,7 +44,8 @@ Open-Meteo API → Python ingestion → PostgreSQL (raw schema)
    and coordinates.
 4. Associates updated observations with the newest `request_id`, preserving
    lineage to the source API payload.
-5. Records a successful load in `metadata.pipeline_runs`.
+5. Records the run's outcome — `SUCCESS` or `FAILED`, with an error message
+   on failure — in `metadata.pipeline_runs`.
 
 All operations occur in a single database transaction—a failed load rolls back
 rather than leaving partially loaded data.
@@ -46,6 +56,18 @@ dbt models transform raw weather data into an analytics-ready schema with:
 - Staging models that clean and denormalize raw observations
 - Tests to validate data quality and uniqueness
 - Documentation of all tables and columns
+
+**Orchestration:**
+
+Apache Airflow runs the `weather_pipeline` DAG hourly: `ingest_weather` →
+`dbt_build` → `dbt_test`, each a `PythonOperator`/`BashOperator` running the
+project's own `ingestion`/`dbt` code directly inside the Airflow container
+(no `DockerOperator`, no Docker-socket mount, no separate sibling images to
+build and keep in sync). `dbt_build`/`dbt_test` record their outcome to
+`metadata.pipeline_runs` the same way the ingestion step and the Streamlit
+buttons do, so Airflow-triggered, dashboard-triggered, and CLI-triggered runs
+all land in one consistent, honest audit trail — a run that fails is recorded
+as `FAILED` with a reason, not silently missing.
 
 ## Continuous integration
 
@@ -88,12 +110,16 @@ OPEN_METEO_LATITUDE=51.5000
 OPEN_METEO_LONGITUDE=-0.1200
 OPEN_METEO_TIMEZONE=Europe/London
 
-# Docker networking (don't change if using make setup)
-DOCKER_NETWORK=data-platform
-
 # Web UI ports
 CLOUDBEAVER_PORT=8978
+STREAMLIT_PORT=8501
 DBT_DOCS_PORT=8082
+AIRFLOW_PORT=8088
+
+# Airflow webserver session key + default admin user (created once at init)
+AIRFLOW_WEBSERVER_SECRET_KEY=change-me-for-anything-beyond-local-dev
+AIRFLOW_ADMIN_USERNAME=admin
+AIRFLOW_ADMIN_PASSWORD=admin
 ```
 
 **Configuration notes:**
@@ -102,9 +128,12 @@ DBT_DOCS_PORT=8082
   determine the forecast location.
 - `CLOUDBEAVER_PORT` is the port for the database UI (http://localhost:8978).
 - `DBT_DOCS_PORT` is the port for dbt documentation (http://localhost:8082).
+- `AIRFLOW_PORT` is the port for the Airflow webserver (http://localhost:8088,
+  log in with `AIRFLOW_ADMIN_USERNAME`/`AIRFLOW_ADMIN_PASSWORD`).
 - The `.env` file is ignored by Git, so credentials are not committed.
-- The Makefile creates the `data-platform` network; if you use a different
-  `DOCKER_NETWORK`, create that external Docker network manually.
+- The Docker network is compose-managed (a plain bridge network) — no manual
+  network creation is needed, unlike some Compose setups you may have seen
+  that require a pre-existing external network.
 
 ## Quick start
 
@@ -114,8 +143,9 @@ DBT_DOCS_PORT=8082
 make setup
 ```
 
-This creates the Docker network, starts PostgreSQL, runs ingestion, and
-transforms data with dbt.
+This starts PostgreSQL, runs ingestion, transforms data with dbt, and brings
+up Airflow (webserver + scheduler) with the `weather_pipeline` DAG ready to
+run hourly.
 
 **Run another ingestion:**
 
@@ -153,8 +183,17 @@ Or simply run `docker compose up -d streamlit`. Then open http://localhost:8501 
 
 The dashboard displays:
 - **Header:** Database connection status, last pipeline run time, test results summary
-- **Main content:** Weather analytics charts, data quality test results grouped by test type
+- **Main content:** Weather analytics charts (with a small map of the configured location), data quality test results grouped by test type
 - **Sidebar:** Quick action buttons (Ingest, Build, Test), key metrics, recent pipeline history, and links to tools
+
+**Access Airflow:**
+
+`make setup` already starts the webserver and scheduler. Open
+http://localhost:8088 and log in with `AIRFLOW_ADMIN_USERNAME`/
+`AIRFLOW_ADMIN_PASSWORD` from `.env` (`admin`/`admin` by default). The
+`weather_pipeline` DAG runs `ingest_weather` → `dbt_build` → `dbt_test`
+hourly — trigger it manually from the UI ("Trigger DAG" button) to see it
+run immediately rather than waiting for the schedule.
 
 **Stop services (keep database):**
 
@@ -176,7 +215,7 @@ This permanently deletes all local PostgreSQL data and runs a fresh setup.
 make fresh
 ```
 
-Stops all services, removes the database volume, and starts only PostgreSQL, Streamlit, CloudBeaver, and dbt-docs. Use the Streamlit dashboard to manually run ingestion, dbt build, and tests. Useful for testing the UI without waiting for full pipeline runs.
+Stops all services, removes the database volume, and starts only PostgreSQL, Streamlit, CloudBeaver, dbt-docs, and Airflow. Use the Streamlit dashboard or the Airflow UI to manually run ingestion, dbt build, and tests. Useful for testing the UI without waiting for full pipeline runs.
 
 **Full cleanup:**
 
@@ -184,26 +223,17 @@ Stops all services, removes the database volume, and starts only PostgreSQL, Str
 make clean
 ```
 
-Stops all services and removes the database volume. For deep cleanup (removing Docker images and networks), uncomment the destructive lines in the Makefile. See "Advanced cleanup" below.
+Stops all services and removes the database volume. For deep cleanup (removing Docker images), uncomment the destructive line in the Makefile. See "Advanced cleanup" below.
 
 ### Advanced cleanup (destructive)
 
-If you need to rebuild Docker images from scratch or reset the Docker network, uncomment these lines in the Makefile targets (`setup`, `reset`, `fresh`, `clean`):
+If you need to rebuild Docker images from scratch (e.g. after changing a `Dockerfile` or `requirements.txt`), uncomment this line in the Makefile targets (`fresh`, `clean`):
 
 ```bash
 # docker image rm -f weather-data-demo-ingestion weather-data-demo-dbt weather-data-demo-streamlit
-# docker network rm data-platform 2>/dev/null || true
-# docker network create data-platform
 ```
 
-These commands:
-- **Remove images:** Forces a fresh build of all project containers (useful if you update dependencies or Dockerfiles)
-- **Remove network:** Resets Docker networking (useful if you have connectivity issues or want to start completely fresh)
-
-⚠️ These are commented out by default because they're irreversible. Only use them if:
-1. You've made changes to `Dockerfile` or `requirements.txt` and need a clean rebuild
-2. You're troubleshooting Docker network issues
-3. You want to completely remove all traces of the project from Docker
+This forces a fresh build of all project containers. It's commented out by default because it's irreversible — only use it if you want to guarantee a clean rebuild rather than reusing cached image layers.
 
 ## Query your data
 
@@ -235,11 +265,12 @@ After two runs for the same forecast window, the number of rows in `raw.weather`
 should remain stable while pointing to the newer `request_id`. This demonstrates
 idempotent delta loading—duplicate observations are not inserted.
 
-View pipeline run history:
+View pipeline run history (a failed run shows `FAILED` with `error_message`
+populated, not a missing row):
 
 ```bash
 docker compose exec postgres psql -U weather_user -d weather_db -c \
-  "SELECT pipeline_name, status, rows_loaded, started_at, completed_at
+  "SELECT pipeline_name, status, rows_loaded, error_message, started_at, completed_at
    FROM metadata.pipeline_runs
    ORDER BY run_id;"
 ```
@@ -257,17 +288,20 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 
 ```text
 .
-├── docker-compose.yml           # All services (postgres, ingestion, dbt, etc.)
+├── docker-compose.yml           # All services (postgres, ingestion, dbt, airflow, etc.)
 ├── Makefile                     # Helpful commands (setup, ingest, build, etc.)
 ├── .env.example                 # Environment template
+├── requirements-dev.txt         # pytest, for tests/ below
+├── tests/                       # Unit tests for ingestion/ingest.py (no live DB needed)
 │
 ├── postgres/
-│   └── init.sql                 # Raw and metadata schemas; tables
+│   └── init.sql                 # airflow DB + raw/metadata/analytics schemas and tables
 │
 ├── ingestion/
 │   ├── Dockerfile               # Python 3.12 image
-│   ├── ingest.py                # API fetch, deduplicate, database load
-│   └── requirements.txt         # Dependencies (requests, psycopg2, etc.)
+│   ├── __init__.py              # makes this importable as `ingestion.ingest` from Airflow
+│   ├── ingest.py                # API fetch, deduplicate, database load, audit-trail logging
+│   └── requirements.txt         # Dependencies (requests, psycopg, etc.)
 │
 ├── dbt/
 │   ├── Dockerfile               # dbt image
@@ -281,6 +315,15 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 │       ├── marts/               # Analytics-ready fact tables
 │       └── sources/             # Source table definitions
 │
+├── airflow/
+│   ├── Dockerfile               # Airflow image + ingestion/dbt deps installed in-process
+│   └── dags/
+│       └── weather_pipeline_dag.py  # ingest_weather -> dbt_build -> dbt_test, hourly
+│
+├── streamlit/
+│   ├── Dockerfile
+│   └── app.py                   # Dashboard: charts, quick actions, pipeline history
+│
 └── cloudbeaver/                 # CloudBeaver config persistence
     ├── connections/
     └── workspace/
@@ -288,13 +331,20 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 
 ### Schemas
 
+All in the `weather_db` database:
+
 - **raw** — Full API responses (`weather_requests`) and hourly observations
   (`weather`)
-- **metadata** — Pipeline run audit trail (`pipeline_runs`)
+- **metadata** — Pipeline run audit trail (`pipeline_runs`, with `status`
+  and `error_message` reflecting the real outcome of every run)
 - **staging** — dbt staging models: cleaned and renamed observations
   (deduplication itself happens upstream, via Postgres's `ON CONFLICT` in
   `ingestion/ingest.py` — staging models don't dedupe)
 - **analytics** — dbt mart models: `fact_weather_observation` for analysis
+
+Airflow's own task/DAG metadata lives in a separate `airflow` database on
+the same Postgres instance — kept apart from this project's own schemas
+rather than mixed in.
 
 ## Portfolio highlights
 
@@ -302,6 +352,18 @@ docker compose exec postgres psql -U weather_user -d weather_db -c \
 - Idempotent delta load with deduplication at the observation level
 - Transactional consistency across raw ingestion and metadata audit
 - API retry logic and error handling
+- Honest audit trail: `metadata.pipeline_runs` records `SUCCESS`/`FAILED`
+  with an error message for every run, whether triggered by Airflow, the
+  Streamlit dashboard, or a manual `make ingest`/`build`/`test` — a failure
+  is never silently missing from the history
+
+**Orchestration:**
+- Apache Airflow DAG (`ingest_weather` → `dbt_build` → `dbt_test`, hourly)
+  running the same `ingestion`/`dbt` code as every other entry point, not a
+  separate copy
+- No `DockerOperator`/Docker-socket dependency — tasks run in-process in the
+  Airflow container, so the DAG is self-contained and doesn't depend on
+  sibling images being built elsewhere
 
 **Data transformation:**
 - dbt models: staging layer for cleaning + mart layer for analytics
