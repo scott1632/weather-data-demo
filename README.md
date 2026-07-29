@@ -1,5 +1,9 @@
 # Weather Data Demo
 
+[![Python CI](https://github.com/scott1632/weather-data-demo/actions/workflows/python-ci.yml/badge.svg)](https://github.com/scott1632/weather-data-demo/actions/workflows/python-ci.yml)
+[![dbt CI](https://github.com/scott1632/weather-data-demo/actions/workflows/dbt-ci.yml/badge.svg)](https://github.com/scott1632/weather-data-demo/actions/workflows/dbt-ci.yml)
+[![Sanity Check](https://github.com/scott1632/weather-data-demo/actions/workflows/sanity.yml/badge.svg)](https://github.com/scott1632/weather-data-demo/actions/workflows/sanity.yml)
+
 A containerised data-engineering project that retrieves hourly forecast data
 from the [Open-Meteo API](https://open-meteo.com/), stores observations in
 PostgreSQL, and transforms them using dbt for analytics.
@@ -42,6 +46,16 @@ dbt models transform raw weather data into an analytics-ready schema with:
 - Staging models that clean and denormalize raw observations
 - Tests to validate data quality and uniqueness
 - Documentation of all tables and columns
+
+## Continuous integration
+
+Every pull request into `main` or `dev` runs three GitHub Actions workflows
+(`.github/workflows/`), and all three must pass before a PR can be merged:
+
+- **Python CI** — `black --check` and `flake8` against `ingestion/`
+- **dbt CI** — starts PostgreSQL via Docker Compose, runs ingestion, then
+  `dbt build` against real data
+- **Sanity Check** — validates `docker-compose.yml` with `docker compose config`
 
 ## Requirements
 
