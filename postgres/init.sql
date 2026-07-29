@@ -43,7 +43,8 @@ CREATE TABLE metadata.pipeline_runs (
     status TEXT NOT NULL,
     started_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ,
-    rows_loaded INTEGER
+    rows_loaded INTEGER,
+    error_message TEXT
 );
 
 CREATE TABLE metadata.test_results (

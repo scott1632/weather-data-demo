@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -103,3 +104,58 @@ def test_upsert_weather_uses_on_conflict_upsert():
     assert "observation_time" in sql
     assert "DO UPDATE SET" in sql
     assert params == records
+
+
+def test_log_pipeline_run_success_writes_all_columns():
+    mock_cursor = MagicMock()
+    mock_connection = MagicMock()
+    mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+
+    started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    completed = datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc)
+
+    ingest.log_pipeline_run(
+        mock_connection, "SUCCESS", started, completed, rows_loaded=168
+    )
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "error_message" in sql
+    assert params == ("weather_ingestion", "SUCCESS", started, completed, 168, None)
+
+
+def test_log_pipeline_run_failure_records_error_message():
+    mock_cursor = MagicMock()
+    mock_connection = MagicMock()
+    mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+
+    started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    completed = datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
+
+    ingest.log_pipeline_run(
+        mock_connection, "FAILED", started, completed, error_message="boom"
+    )
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert params == ("weather_ingestion", "FAILED", started, completed, None, "boom")
+
+
+def test_main_logs_failure_to_metadata_on_exception(monkeypatch):
+    mock_cursor = MagicMock()
+    mock_connection = MagicMock()
+    mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+    mock_connection.__enter__.return_value = mock_connection
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ingest, "get_config", _raise)
+    monkeypatch.setattr(ingest, "get_database_connection", lambda: mock_connection)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        ingest.main()
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert params[0] == "weather_ingestion"
+    assert params[1] == "FAILED"
+    assert params[5] == "boom"
+    mock_connection.commit.assert_called()
