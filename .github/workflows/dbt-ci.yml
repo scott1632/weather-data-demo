@@ -2,11 +2,6 @@ name: dbt CI
 
 on:
   pull_request:
-    paths:
-      - "dbt/**"
-      - "postgres/**"
-      - "ingestion/**"
-      - "docker-compose.yml"
 
 jobs:
   build:
