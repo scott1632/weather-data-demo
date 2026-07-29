@@ -9,6 +9,13 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY}
+    # dbt's log/target output must not land in the bind-mounted ./dbt
+    # directory: it's owned by the host user (or root, from the separate
+    # dbt service's own container), and the airflow user (uid 50000) can't
+    # write there, causing PermissionError on dbt.log. Redirect both to a
+    # container-local, airflow-owned directory instead.
+    DBT_LOG_PATH: /home/airflow/dbt-logs
+    DBT_TARGET_PATH: /home/airflow/dbt-target
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./ingestion:/opt/airflow/ingestion
