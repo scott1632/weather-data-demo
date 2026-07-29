@@ -1,0 +1,51 @@
+name: dbt CI
+
+on:
+  pull_request:
+    paths:
+      - "dbt/**"
+      - "postgres/**"
+      - "ingestion/**"
+      - "docker-compose.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env
+        run: cp .env.example .env
+
+      - name: Create external docker network
+        run: docker network create ${DOCKER_NETWORK:-data-platform}
+        env:
+          DOCKER_NETWORK: data-platform
+
+      - name: Start postgres
+        run: docker compose up -d postgres
+
+      - name: Wait for postgres to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' weather_postgres)
+            [ "$status" = "healthy" ] && exit 0
+            sleep 2
+          done
+          echo "postgres did not become healthy in time"
+          docker compose logs postgres
+          exit 1
+
+      - name: Run ingestion
+        run: docker compose run --rm ingestion
+
+      - name: dbt build
+        run: docker compose run --rm dbt dbt build
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
