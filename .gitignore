@@ -12,6 +12,12 @@ __pycache__/
 dbt/target/
 dbt/logs/
 
+# Airflow generated files (not bind-mounted by default, but ignored in case
+# a local logs/config volume is ever added)
+airflow/logs/
+airflow/airflow.cfg
+airflow/webserver_config.py
+
 # OS
 .DS_Store
 

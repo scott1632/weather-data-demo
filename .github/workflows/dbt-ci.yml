@@ -12,11 +12,6 @@ jobs:
       - name: Create .env
         run: cp .env.example .env
 
-      - name: Create external docker network
-        run: docker network create ${DOCKER_NETWORK:-data-platform}
-        env:
-          DOCKER_NETWORK: data-platform
-
       - name: Start postgres
         run: docker compose up -d postgres
 
