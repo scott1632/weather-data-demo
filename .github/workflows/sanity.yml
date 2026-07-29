@@ -1,0 +1,16 @@
+name: Sanity Check
+
+on:
+  pull_request:
+
+jobs:
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env
+        run: cp .env.example .env
+
+      - name: Validate docker-compose.yml
+        run: docker compose config

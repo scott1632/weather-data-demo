@@ -86,13 +86,10 @@ def fetch_weather(config: dict[str, Any]) -> dict[str, Any]:
     payload = response.json()
 
     if "hourly" not in payload:
-        raise ValueError(
-            "Open-Meteo response did not contain hourly data"
-        )
+        raise ValueError("Open-Meteo response did not contain hourly data")
 
-    logger.info(f"Successfully fetched forecast data")
+    logger.info("Successfully fetched forecast data")
     return payload
-
 
 
 def transform_weather_response(
@@ -110,9 +107,7 @@ def transform_weather_response(
 
     row_count = len(hourly["time"])
     invalid_lengths = [
-        field
-        for field in REQUIRED_FIELDS
-        if len(hourly[field]) != row_count
+        field for field in REQUIRED_FIELDS if len(hourly[field]) != row_count
     ]
 
     if invalid_lengths:
