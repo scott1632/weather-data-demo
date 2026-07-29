@@ -24,3 +24,20 @@ jobs:
 
       - name: flake8
         run: flake8 ingestion/ --max-line-length=100
+
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r ingestion/requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: pytest tests/ -v
